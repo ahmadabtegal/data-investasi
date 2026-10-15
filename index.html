@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitoring Data Investasi | DPMPTSP Kota Tegal</title>
+<meta name="description" content="Dashboard statistik data proyek dan KBLI">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+<style>
+:root{--navy:#12243a;--blue:#1e66d0;--cyan:#18a6b8;--bg:#f3f6fb;--ink:#1b2b40;--muted:#718096;--line:#e5ebf3;--white:#fff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 Inter,Segoe UI,Arial,sans-serif}
+header{background:linear-gradient(120deg,#10243b,#1b5485);color:white;padding:20px clamp(18px,4vw,52px)}
+.brand-row{display:flex;align-items:center;gap:18px;min-width:0}.brand-logos{display:flex;align-items:center;gap:12px;flex-shrink:0}.brand-logos img{display:block;object-fit:contain;max-height:58px;max-width:125px;width:auto;height:auto}.brand-logos .city-logo{max-height:66px;max-width:66px}.brand-copy{min-width:0}
+.head{max-width:1450px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.brand small{letter-spacing:1.5px;text-transform:uppercase;opacity:.75;font-weight:700}.brand h1{font-size:clamp(22px,3vw,32px);margin:5px 0}.brand p{margin:0;color:#d4e3f3}
+.status{display:flex;align-items:center;gap:8px;font-size:12px;background:#ffffff18;border:1px solid #ffffff30;border-radius:30px;padding:9px 13px}
+.dot{width:8px;height:8px;background:#ffbd4a;border-radius:50%}.dot.ok{background:#48d597}
+main{max-width:1450px;margin:24px auto;padding:0 clamp(14px,3vw,36px) 40px}
+.toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.toolbar p{margin:0;color:var(--muted)}button{border:0;border-radius:9px;background:var(--blue);color:white;padding:10px 15px;font-weight:700;cursor:pointer}button:hover{filter:brightness(.95)}
+.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;margin-bottom:18px}
+.kpi,.panel{background:var(--white);border:1px solid var(--line);border-radius:15px;box-shadow:0 5px 18px #183b5b08}
+.kpi{padding:18px;min-height:118px;position:relative;overflow:hidden}.kpi:after{content:"";position:absolute;width:70px;height:70px;border-radius:50%;right:-24px;top:-25px;background:#eaf3ff}
+.kpi .label{color:var(--muted);font-weight:600;font-size:12px}.kpi .value{font-size:clamp(20px,2.3vw,30px);font-weight:800;letter-spacing:-.5px;margin-top:10px;overflow-wrap:anywhere}.kpi .sub{font-size:11px;color:var(--muted);margin-top:4px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.panel{padding:18px;min-width:0}.panel.wide{grid-column:1/-1}
+.panel h2{font-size:15px;margin:0 0 4px}.panel .desc{font-size:12px;color:var(--muted);margin:0 0 14px}.chart-wrap{height:300px;position:relative}.chart-wrap.short{height:260px}
+.table-wrap{overflow:auto;max-height:440px}table{width:100%;border-collapse:collapse;white-space:nowrap;font-size:12px}th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--line)}th{position:sticky;top:0;background:#f7f9fc;color:#617087;z-index:1}
+input,select{border:1px solid #d9e2ef;border-radius:8px;padding:10px;background:#fff;color:var(--ink);max-width:100%}.filters{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px}.filters input{flex:1;min-width:180px}
+.note{color:var(--muted);font-size:11px;margin-top:14px}.error{padding:14px;border-radius:10px;background:#fff2f0;color:#9e2d24;border:1px solid #ffd6d0;display:none;margin:12px 0}
+footer{text-align:center;color:var(--muted);font-size:11px;padding:18px}
+@media(max-width:1050px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:680px){.brand-row{align-items:flex-start;gap:10px}.brand-logos{gap:6px}.brand-logos img{max-width:76px;max-height:42px}.brand-logos .city-logo{max-height:46px;max-width:42px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.grid{grid-template-columns:1fr}.panel.wide{grid-column:auto}.chart-wrap{height:260px}.kpi{padding:14px}.kpi .value{font-size:22px}}
+</style>
+</head>
+<body>
+<header><div class="head">
+ <div class="brand-row"><div class="brand-logos"><img src="assets/logo-dpmptsp.png" alt="Logo DPMPTSP"/><img class="city-logo" src="assets/logo-kota-tegal.png" alt="Logo Kota Tegal"/><img src="assets/logo-oss.png" alt="Logo OSS"/></div><div class="brand brand-copy"><small>Dashboard Statistik</small><h1>Monitoring Data Investasi</h1><p>DPMPTSP Kota Tegal · Ringkasan data OSS berbasis spreadsheet</p></div></div>
+ <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Menghubungkan data…</span></div>
+</div></header>
+<main>
+ <div class="toolbar"><p id="updated">Data akan diperbarui dari Google Spreadsheet.</p><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><label for="yearFilter" style="font-weight:700;color:var(--ink)">Tahun pengajuan</label><select id="yearFilter" onchange="applyYearFilter()"><option value="">Semua tahun</option></select><button id="refreshBtn" onclick="loadData()">↻ Perbarui Data</button></div></div>
+ <div id="error" class="error"></div>
+ <section class="kpis">
+  <article class="kpi"><div class="label">TOTAL PROYEK</div><div class="value" id="totalProyek">—</div><div class="sub">Jumlah baris data proyek</div></article>
+  <article class="kpi"><div class="label">JUMLAH KBLI UNIK</div><div class="value" id="totalKBLI">—</div><div class="sub">Kode KBLI berbeda yang terisi</div></article>
+  <article class="kpi"><div class="label">TOTAL INVESTASI</div><div class="value" id="totalInvestasi">—</div><div class="sub">Akumulasi nilai investasi tercatat</div></article>
+  <article class="kpi"><div class="label">TOTAL TKI</div><div class="value" id="totalTKI">—</div><div class="sub">Akumulasi tenaga kerja Indonesia</div></article>
+  <article class="kpi"><div class="label">USAHA UNIK (NIB)</div><div class="value" id="totalPerusahaan">—</div><div class="sub">Nomor NIB berbeda</div></article>
+ </section>
+ <section class="grid">
+  <article class="panel"><h2>Tren proyek berdasarkan tahun</h2><p class="desc">Jumlah proyek menurut tahun pengajuan proyek.</p><div class="chart-wrap"><canvas id="yearChart"></canvas></div></article>
+  <article class="panel"><h2>Nilai investasi berdasarkan tahun</h2><p class="desc">Akumulasi investasi berdasarkan tahun pengajuan proyek.</p><div class="chart-wrap"><canvas id="yearInvestmentChart"></canvas></div></article>
+  <article class="panel"><h2>Sebaran proyek per kecamatan</h2><p class="desc">Membandingkan konsentrasi proyek antarwilayah.</p><div class="chart-wrap"><canvas id="districtChart"></canvas></div></article>
+  <article class="panel"><h2>Komposisi tingkat risiko</h2><p class="desc">Jumlah proyek pada setiap kategori risiko.</p><div class="chart-wrap"><canvas id="riskChart"></canvas></div></article>
+  <article class="panel"><h2>Skala usaha</h2><p class="desc">Distribusi proyek menurut skala usaha.</p><div class="chart-wrap"><canvas id="scaleChart"></canvas></div></article>
+  <article class="panel"><h2>Sektor pembina — jumlah proyek</h2><p class="desc">10 sektor dengan catatan proyek terbanyak.</p><div class="chart-wrap"><canvas id="sectorChart"></canvas></div></article>
+  <article class="panel"><h2>Sektor pembina — nilai investasi</h2><p class="desc">10 sektor dengan nilai investasi terbesar.</p><div class="chart-wrap"><canvas id="investmentChart"></canvas></div></article>
+  <article class="panel"><h2>KBLI yang paling sering muncul</h2><p class="desc">10 judul KBLI teratas berdasarkan jumlah catatan proyek. KPI KBLI unik dihitung dari kode KBLI.</p><div class="chart-wrap"><canvas id="kbliChart"></canvas></div></article>
+  <article class="panel"><h2>Status penanaman modal</h2><p class="desc">Komposisi PMDN dan kategori status lain yang tercatat.</p><div class="chart-wrap"><canvas id="modalChart"></canvas></div></article>
+  <article class="panel wide"><h2>Daftar data proyek</h2><p class="desc">Pencarian sisi klien pada data yang diterima dari spreadsheet.</p>
+   <div class="filters"><input id="searchInput" placeholder="Cari nama perusahaan, proyek, KBLI, kecamatan…" oninput="renderTable()"><select id="districtFilter" onchange="renderTable()"><option value="">Semua kecamatan</option></select><select id="riskFilter" onchange="renderTable()"><option value="">Semua risiko</option></select></div>
+   <div class="table-wrap"><table><thead><tr><th>ID Proyek</th><th>NIB</th><th>Nama Perusahaan</th><th>Nama Proyek</th><th>KBLI</th><th>Judul KBLI</th><th>Kecamatan</th><th>Risiko</th><th>Skala</th><th>Investasi</th></tr></thead><tbody id="dataRows"><tr><td colspan="10">Memuat data…</td></tr></tbody></table></div>
+   <div class="note" id="tableNote"></div>
+  </article>
+  <article class="panel wide"><h2>Daftar usaha berdasarkan bidang kegiatan</h2><p class="desc">Ringkasan jenis usaha dari judul KBLI dan nama proyek, misalnya akomodasi, klinik, penyedia makanan, rumah sakit, dan kategori lain yang ditemukan di data.</p>
+   <div class="filters"><input id="businessSearch" placeholder="Cari jenis usaha, KBLI, atau uraian…" oninput="renderBusinessList()"><select id="businessCategory" onchange="renderBusinessList()"><option value="">Semua kategori usaha</option></select></div>
+   <div class="table-wrap"><table><thead><tr><th>Kategori usaha</th><th>KBLI</th><th>Judul KBLI / Jenis usaha</th><th>Jumlah proyek</th><th>Total investasi</th><th>Kecamatan</th></tr></thead><tbody id="businessRows"><tr><td colspan="6">Memuat data…</td></tr></tbody></table></div><div class="note" id="businessNote"></div>
+  </article>
+ </section>
+ <p class="note">Catatan: angka investasi dan TKI merupakan agregasi dari data spreadsheet. Pastikan tidak ada baris duplikat dan definisi kolom sesuai sebelum digunakan sebagai angka resmi. Dashboard ini hanya menampilkan data; pengelolaan data dilakukan melalui spreadsheet.</p>
+</main>
+<footer>Monitoring Data Investasi · GitHub Pages + Google Apps Script</footer>
+<script>
+/* TEMPEL URL Web App Apps Script yang berakhiran /exec di sini */
+const CONFIG = {
+  API_URL: "https://script.google.com/macros/s/AKfycbxYQ_R_YXj2lzKbdUx6bFcLfgCXZtefSXrSX5vowhuAME81OMShw1MyJwuwNnBwbNvREA/exec"
+};
+let dashboardData = null;
+let chartInstances = {};
+let tableLimit = 100;
+let activeRecords = [];
+const fmt = n => new Intl.NumberFormat('id-ID',{maximumFractionDigits:0}).format(Number(n)||0);
+const rupiah = n => {
+  n = Number(n)||0;
+  if (Math.abs(n)>=1e12) return 'Rp '+(n/1e12).toLocaleString('id-ID',{maximumFractionDigits:2})+' T';
+  if (Math.abs(n)>=1e9) return 'Rp '+(n/1e9).toLocaleString('id-ID',{maximumFractionDigits:2})+' M';
+  if (Math.abs(n)>=1e6) return 'Rp '+(n/1e6).toLocaleString('id-ID',{maximumFractionDigits:1})+' jt';
+  return 'Rp '+fmt(n);
+};
+const palette = ['#2463eb','#17a2b8','#6b7cfa','#f4a340','#36a879','#8b5cf6','#e66b8b','#7d8b99','#c2a23a','#4394d1'];
+const YEAR_START = 2021;
+const CURRENT_YEAR = new Date().getFullYear();
+const REPORT_YEARS = Array.from({length: Math.max(0, CURRENT_YEAR - YEAR_START + 1)}, (_, i) => YEAR_START + i);
+function jsonp(url) {
+ return new Promise((resolve,reject)=>{
+  const cb='jsonp_'+Date.now()+'_'+Math.floor(Math.random()*100000);
+  const script=document.createElement('script');
+  const timer=setTimeout(()=>{cleanup();reject(new Error('Waktu koneksi habis. Periksa URL Apps Script dan izin deployment.'));},25000);
+  function cleanup(){clearTimeout(timer);delete window[cb];script.remove();}
+  window[cb]=data=>{cleanup();resolve(data);};
+  script.onerror=()=>{cleanup();reject(new Error('Gagal mengakses API. Pastikan URL /exec benar dan akses Web App diizinkan.'));};
+  script.src=url+(url.includes('?')?'&':'?')+'callback='+cb+'&t='+Date.now();
+  document.body.appendChild(script);
+ });
+}
+async function loadData(){
+ const btn=document.getElementById('refreshBtn'), err=document.getElementById('error');
+ err.style.display='none';btn.disabled=true;btn.textContent='Memuat…';
+ try{
+  if(!CONFIG.API_URL || CONFIG.API_URL.includes('GANTI_DENGAN')) throw new Error('URL Apps Script belum diatur di CONFIG.API_URL pada index.html.');
+  const data=await jsonp(CONFIG.API_URL);
+  if(!data || !data.ok) throw new Error(data && data.error ? data.error : 'Respons data tidak valid.');
+  dashboardData=data; populateYearFilter(data.records||[]); applyYearFilter();
+  document.getElementById('statusText').textContent='Terhubung ke spreadsheet';
+  document.getElementById('statusDot').classList.add('ok');
+  document.getElementById('updated').textContent='Pembaruan terakhir: '+new Date(data.updatedAt).toLocaleString('id-ID');
+ }catch(e){
+  err.textContent=e.message;err.style.display='block';
+  document.getElementById('statusText').textContent='Koneksi bermasalah';
+  document.getElementById('statusDot').classList.remove('ok');
+ }finally{btn.disabled=false;btn.textContent='↻ Perbarui Data';}
+}
+function populateYearFilter(records){
+ const el=document.getElementById('yearFilter');
+ const selected=el.value;
+ // Tahun yang tersedia dimulai 2021 dan berhenti pada tahun berjalan.
+ el.innerHTML='<option value="">Semua tahun</option>'+REPORT_YEARS.map(y=>'<option value="'+y+'">'+y+'</option>').join('');
+ if(selected && REPORT_YEARS.includes(Number(selected))) el.value=selected;
+}
+function applyYearFilter(){
+ if(!dashboardData)return;
+ const year=document.getElementById('yearFilter').value;
+ activeRecords=(dashboardData.records||[]).filter(r=>!year||String(r.tahunPengajuan)===year);
+ const records=activeRecords;
+ const totalInvestasi=records.reduce((s,r)=>s+(Number(r.investasi)||0),0);
+ const totalTKI=records.reduce((s,r)=>s+(Number(r.tki)||0),0);
+ const uniqueKBLI=new Set(records.map(r=>r.kbli).filter(Boolean));
+ const companies=new Set(records.map(r=>String(r.nib||'').trim()).filter(Boolean));
+ document.getElementById('totalProyek').textContent=fmt(records.length);
+ document.getElementById('totalKBLI').textContent=fmt(uniqueKBLI.size);
+ document.getElementById('totalInvestasi').textContent=rupiah(totalInvestasi);
+ document.getElementById('totalTKI').textContent=fmt(totalTKI);
+ document.getElementById('totalPerusahaan').textContent=fmt(companies.size);
+ const countBy=(key,limit=20)=>{const m={};records.forEach(r=>{const k=r[key]||'Tidak diisi';m[k]=(m[k]||0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,limit).map(([label,value])=>({label,value}));};
+ const sumBy=(key,amountKey,limit=10)=>{const m={};records.forEach(r=>{const k=r[key]||'Tidak diisi';m[k]=(m[k]||0)+(Number(r[amountKey])||0)});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,limit).map(([label,value])=>({label,value}));};
+ const years={};records.forEach(r=>{if(r.tahunPengajuan)years[r.tahunPengajuan]=(years[r.tahunPengajuan]||0)+1;});
+ makeChart('yearChart','bar',REPORT_YEARS.map(y=>({label:String(y),value:records.filter(r=>Number(r.tahunPengajuan)===y).length})),'Jumlah proyek',false);
+ const investmentYears={};records.forEach(r=>{const y=Number(r.tahunPengajuan);if(y>=YEAR_START&&y<=CURRENT_YEAR)investmentYears[y]=(investmentYears[y]||0)+(Number(r.investasi)||0);});
+ makeChart('yearInvestmentChart','bar',REPORT_YEARS.map(y=>({label:String(y),value:investmentYears[y]||0})),'Investasi (Rp)',false,true);
+ makeChart('districtChart','bar',countBy('kecamatan'),'Jumlah proyek',true);
+ makeChart('riskChart','doughnut',countBy('risiko'),'Jumlah proyek',false);
+ makeChart('scaleChart','bar',countBy('skala'),'Jumlah proyek',true);
+ makeChart('sectorChart','bar',countBy('sektor',10),'Jumlah proyek',true);
+ makeChart('investmentChart','bar',sumBy('sektor','investasi',10),'Investasi (Rp)',true,true);
+ makeChart('kbliChart','bar',countBy('judulKbli',10),'Jumlah proyek',true);
+ makeChart('modalChart','doughnut',countBy('statusModal',10),'Jumlah proyek',false);
+ populateFilters(records);renderTable();renderBusinessList();
+}
+function makeChart(id,type,items,label,horizontal=false,money=false){
+ const canvas=document.getElementById(id);if(!canvas)return;
+ if(chartInstances[id])chartInstances[id].destroy();
+ items=items||[];
+ if(window.ChartDataLabels && !Chart.registry.plugins.get('datalabels')) Chart.register(ChartDataLabels);
+ chartInstances[id]=new Chart(canvas,{
+  type,
+  data:{labels:items.map(x=>x.label),datasets:[{label,data:items.map(x=>x.value),
+   backgroundColor:type==='doughnut'?items.map((_,i)=>palette[i%palette.length]):(horizontal?'#2463eb':'#17a2b8'),
+   borderRadius:type==='bar'?5:0,borderWidth:0,barPercentage:.72,categoryPercentage:.8}]},
+  options:{responsive:true,maintainAspectRatio:false,indexAxis:horizontal?'y':'x',
+   plugins:{legend:{display:type==='doughnut',position:'bottom'},datalabels:{display:true,anchor:type==='doughnut'?'center':(horizontal?'end':'end'),align:type==='doughnut'?'center':(horizontal?'right':'top'),color:type==='doughnut'?'#ffffff':'#23364d',font:{weight:'700',size:10},formatter:(v,ctx)=>type==='doughnut'?fmt(v):(money?rupiah(v):fmt(v)),clamp:true,clip:false},tooltip:{callbacks:{label:c=>' '+(money?rupiah(c.raw):fmt(c.raw))}}},
+   scales:type==='doughnut'?{}:(horizontal?{x:{beginAtZero:true,grid:{display:true},ticks:{callback:v=>money?rupiah(v):fmt(v)}},y:{grid:{display:false},ticks:{autoSkip:false}}}:{x:{grid:{display:true},ticks:{autoSkip:false}},y:{beginAtZero:true,grid:{display:false},ticks:{callback:v=>money?rupiah(v):fmt(v)}}})}
+ });
+}
+function populateFilters(records){
+ const districts=[...new Set(records.map(r=>r.kecamatan).filter(Boolean))].sort();
+ const risks=[...new Set(records.map(r=>r.risiko).filter(Boolean))].sort();
+ setOptions('districtFilter',districts);setOptions('riskFilter',risks);
+}
+function setOptions(id,items){
+ const el=document.getElementById(id),first=el.options[0].outerHTML;
+ el.innerHTML=first+items.map(x=>'<option value="'+escapeHtml(x)+'">'+escapeHtml(x)+'</option>').join('');
+}
+function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function renderTable(){
+ if(!dashboardData)return;
+ const q=(document.getElementById('searchInput').value||'').toLowerCase().trim();
+ const dist=document.getElementById('districtFilter').value,risk=document.getElementById('riskFilter').value;
+ const filtered=activeRecords.filter(r=>
+  (!dist||r.kecamatan===dist)&&(!risk||r.risiko===risk)&&
+  [r.idProyek,r.nib,r.namaPerusahaan,r.namaProyek,r.kbli,r.judulKbli,r.kecamatan,r.risiko,r.skala].join(' ').toLowerCase().includes(q));
+ const shown=filtered.slice(0,tableLimit);
+ document.getElementById('dataRows').innerHTML=shown.length?shown.map(r=>'<tr>'+
+  '<td>'+escapeHtml(r.idProyek)+'</td><td>'+escapeHtml(r.nib)+'</td><td>'+escapeHtml(r.namaPerusahaan)+'</td><td>'+escapeHtml(r.namaProyek)+'</td>'+
+  '<td>'+escapeHtml(r.kbli)+'</td><td>'+escapeHtml(r.judulKbli)+'</td><td>'+escapeHtml(r.kecamatan)+'</td>'+
+  '<td>'+escapeHtml(r.risiko)+'</td><td>'+escapeHtml(r.skala)+'</td><td>'+escapeHtml(rupiah(r.investasi))+'</td></tr>').join(''):
+  '<tr><td colspan="10">Tidak ada data yang cocok.</td></tr>';
+ document.getElementById('tableNote').textContent='Menampilkan '+fmt(shown.length)+' dari '+fmt(filtered.length)+' data hasil filter'+(filtered.length>tableLimit?' (maksimum '+fmt(tableLimit)+' baris pada tampilan ini)':'')+'.';
+}
+
+function classifyBusiness(r){
+ const text=((r.judulKbli||'')+' '+(r.namaProyek||'')+' '+(r.sektor||'')).toLowerCase();
+ const groups=[
+  ['Akomodasi','hotel','akomodasi','penginapan','losmen','guest house','pondok wisata','vila','villa'],
+  ['Rumah makan & penyedia makanan','restoran','rumah makan','penyedia makanan','jasa boga','katering','catering','warung makan','kedai makanan'],
+  ['Klinik & praktik kesehatan','klinik','praktik dokter','praktek dokter','praktik kesehatan','laboratorium klinik'],
+  ['Rumah sakit','rumah sakit','rs umum','rs khusus'],
+  ['Apotek & farmasi','apotek','farmasi','toko obat'],
+  ['Perdagangan','perdagangan','eceran','perdagangan besar','toko'],
+  ['Industri / produksi','industri','industri pengolahan','produksi','pabrik'],
+  ['Pendidikan','pendidikan','sekolah','kursus','bimbingan belajar'],
+  ['Konstruksi','konstruksi','konstruksi gedung','pekerjaan konstruksi'],
+  ['Transportasi','angkutan','transportasi','pergudangan','logistik'],
+  ['Kecantikan & kebugaran','salon','pangkas rambut','kecantikan','spa','kebugaran'],
+  ['Jasa lainnya','jasa','reparasi','perawatan']
+ ];
+ for(const g of groups) if(g.slice(1).some(k=>text.includes(k))) return g[0];
+ return r.judulKbli?'Usaha lainnya':'Belum teridentifikasi';
+}
+function renderBusinessList(){
+ if(!dashboardData)return;
+ const q=(document.getElementById('businessSearch').value||'').toLowerCase().trim();
+ const cat=document.getElementById('businessCategory').value;
+ const map=new Map();
+ activeRecords.forEach(r=>{
+  const category=classifyBusiness(r), code=r.kbli||'—', title=r.judulKbli||r.namaProyek||'Uraian tidak tersedia';
+  const key=[category,code,title].join('|');
+  if(!map.has(key))map.set(key,{category,code,title,count:0,investment:0,districts:new Set()});
+  const o=map.get(key);o.count++;o.investment+=Number(r.investasi)||0;if(r.kecamatan)o.districts.add(r.kecamatan);
+ });
+ const categories=[...new Set([...map.values()].map(x=>x.category))].sort();
+ const sel=document.getElementById('businessCategory');const prior=sel.value;sel.innerHTML='<option value="">Semua kategori usaha</option>'+categories.map(c=>'<option value="'+escapeHtml(c)+'">'+escapeHtml(c)+'</option>').join('');if(categories.includes(prior))sel.value=prior;
+ const rows=[...map.values()].filter(x=>(!cat||x.category===cat)&&[x.category,x.code,x.title,[...x.districts].join(' ')].join(' ').toLowerCase().includes(q)).sort((a,b)=>b.count-a.count);
+ const body=document.getElementById('businessRows');
+ body.innerHTML=rows.slice(0,500).map(x=>'<tr><td>'+escapeHtml(x.category)+'</td><td>'+escapeHtml(x.code)+'</td><td>'+escapeHtml(x.title)+'</td><td>'+fmt(x.count)+'</td><td>'+escapeHtml(rupiah(x.investment))+'</td><td>'+escapeHtml([...x.districts].join(', ')||'—')+'</td></tr>').join('')||'<tr><td colspan="6">Tidak ada jenis usaha yang cocok.</td></tr>';
+ document.getElementById('businessNote').textContent='Menampilkan '+fmt(Math.min(rows.length,500))+' dari '+fmt(rows.length)+' kombinasi kategori/KBLI/jenis usaha. Kategori disimpulkan dari kata kunci judul KBLI, nama proyek, dan sektor; periksa judul KBLI untuk klasifikasi resmi.';
+}
+
+loadData();
+</script>
+</body></html>
