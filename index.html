@@ -58,7 +58,7 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:18px}
   <article class="panel"><h2>Sektor pembina — nilai investasi</h2><p class="desc">10 sektor dengan nilai investasi terbesar.</p><div class="chart-wrap"><canvas id="investmentChart"></canvas></div></article>
   <article class="panel"><h2>KBLI yang paling sering muncul</h2><p class="desc">10 judul KBLI teratas berdasarkan jumlah catatan proyek. KPI KBLI unik dihitung dari kode KBLI.</p><div class="chart-wrap"><canvas id="kbliChart"></canvas></div></article>
   <article class="panel"><h2>Status penanaman modal</h2><p class="desc">Komposisi PMDN dan kategori status lain yang tercatat.</p><div class="chart-wrap"><canvas id="modalChart"></canvas></div></article>
-  <article class="panel wide"><h2>Daftar data proyek</h2><p class="desc">Pencarian sisi klien pada data yang diterima dari spreadsheet.</p>
+  <article class="panel wide"><h2>Daftar data proyek</h2><p class="desc">Pencarian server-side dengan pagination 100 baris per halaman.</p>
    <div class="filters"><input id="searchInput" placeholder="Cari nama perusahaan, proyek, KBLI, kecamatan…" oninput="renderTable()"><select id="districtFilter" onchange="renderTable()"><option value="">Semua kecamatan</option></select><select id="riskFilter" onchange="renderTable()"><option value="">Semua risiko</option></select></div>
    <div class="table-wrap"><table><thead><tr><th>ID Proyek</th><th>NIB</th><th>Nama Perusahaan</th><th>Nama Proyek</th><th>KBLI</th><th>Judul KBLI</th><th>Kecamatan</th><th>Risiko</th><th>Skala</th><th>Investasi</th></tr></thead><tbody id="dataRows"><tr><td colspan="10">Memuat data…</td></tr></tbody></table></div>
    <div class="note" id="tableNote"></div>
@@ -70,7 +70,7 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:18px}
  </section>
  <p class="note">Catatan: angka investasi dan TKI merupakan agregasi dari data spreadsheet. Pastikan tidak ada baris duplikat dan definisi kolom sesuai sebelum digunakan sebagai angka resmi. Dashboard ini hanya menampilkan data; pengelolaan data dilakukan melalui spreadsheet.</p>
 </main>
-<footer>Monitoring Data Investasi · GitHub Pages + Google Apps Script</footer>
+<footer>Monitoring Data Investasi · GitHub Pages + Google Apps Script · API ringkasan dan pagination</footer>
 <script>
 /* TEMPEL URL Web App Apps Script yang berakhiran /exec di sini */
 const CONFIG = {
@@ -78,164 +78,65 @@ const CONFIG = {
 };
 let dashboardData = null;
 let chartInstances = {};
-let tableLimit = 100;
-let activeRecords = [];
+let currentPage = 1;
+const PAGE_SIZE = 100;
+let totalRows = 0;
+let tableTimer = null;
 const fmt = n => new Intl.NumberFormat('id-ID',{maximumFractionDigits:0}).format(Number(n)||0);
 const rupiah = n => {
-  n = Number(n)||0;
-  if (Math.abs(n)>=1e12) return 'Rp '+(n/1e12).toLocaleString('id-ID',{maximumFractionDigits:2})+' T';
-  if (Math.abs(n)>=1e9) return 'Rp '+(n/1e9).toLocaleString('id-ID',{maximumFractionDigits:2})+' M';
-  if (Math.abs(n)>=1e6) return 'Rp '+(n/1e6).toLocaleString('id-ID',{maximumFractionDigits:1})+' jt';
-  return 'Rp '+fmt(n);
+ n=Number(n)||0;
+ if(Math.abs(n)>=1e12)return 'Rp '+(n/1e12).toLocaleString('id-ID',{maximumFractionDigits:2})+' T';
+ if(Math.abs(n)>=1e9)return 'Rp '+(n/1e9).toLocaleString('id-ID',{maximumFractionDigits:2})+' M';
+ if(Math.abs(n)>=1e6)return 'Rp '+(n/1e6).toLocaleString('id-ID',{maximumFractionDigits:1})+' jt';
+ return 'Rp '+fmt(n);
 };
-const palette = ['#2463eb','#17a2b8','#6b7cfa','#f4a340','#36a879','#8b5cf6','#e66b8b','#7d8b99','#c2a23a','#4394d1'];
-const YEAR_START = 2021;
-const CURRENT_YEAR = new Date().getFullYear();
-const REPORT_YEARS = Array.from({length: Math.max(0, CURRENT_YEAR - YEAR_START + 1)}, (_, i) => YEAR_START + i);
-function jsonp(url) {
+const palette=['#2463eb','#17a2b8','#6b7cfa','#f4a340','#36a879','#8b5cf6','#e66b8b','#7d8b99','#c2a23a','#4394d1'];
+const YEAR_START=2021, CURRENT_YEAR=new Date().getFullYear();
+const REPORT_YEARS=Array.from({length:Math.max(0,CURRENT_YEAR-YEAR_START+1)},(_,i)=>YEAR_START+i);
+function jsonp(params={}){
  return new Promise((resolve,reject)=>{
-  const cb='jsonp_'+Date.now()+'_'+Math.floor(Math.random()*100000);
-  const script=document.createElement('script');
-  const timer=setTimeout(()=>{cleanup();reject(new Error('Waktu koneksi habis. Periksa URL Apps Script dan izin deployment.'));},25000);
+  const cb='jsonp_'+Date.now()+'_'+Math.floor(Math.random()*100000),script=document.createElement('script');
+  const timer=setTimeout(()=>{cleanup();reject(new Error('Waktu koneksi habis. API masih memproses atau URL/izin deployment perlu diperiksa.'));},60000);
   function cleanup(){clearTimeout(timer);delete window[cb];script.remove();}
-  window[cb]=data=>{cleanup();resolve(data);};
-  script.onerror=()=>{cleanup();reject(new Error('Gagal mengakses API. Pastikan URL /exec benar dan akses Web App diizinkan.'));};
-  script.src=url+(url.includes('?')?'&':'?')+'callback='+cb+'&t='+Date.now();
-  document.body.appendChild(script);
+  window[cb]=data=>{cleanup();resolve(data)};
+  script.onerror=()=>{cleanup();reject(new Error('Gagal mengakses API. Periksa URL /exec dan izin Web App.'))};
+  const q=new URLSearchParams({...params,callback:cb,t:String(Date.now())}); script.src=CONFIG.API_URL+'?'+q.toString();document.body.appendChild(script);
  });
 }
+function showError(e){const el=document.getElementById('error');el.textContent=e.message||String(e);el.style.display='block';document.getElementById('statusText').textContent='Koneksi bermasalah';document.getElementById('statusDot').classList.remove('ok')}
 async function loadData(){
- const btn=document.getElementById('refreshBtn'), err=document.getElementById('error');
- err.style.display='none';btn.disabled=true;btn.textContent='Memuat…';
+ const btn=document.getElementById('refreshBtn'),err=document.getElementById('error');err.style.display='none';btn.disabled=true;btn.textContent='Memuat…';
  try{
-  if(!CONFIG.API_URL || CONFIG.API_URL.includes('GANTI_DENGAN')) throw new Error('URL Apps Script belum diatur di CONFIG.API_URL pada index.html.');
-  const data=await jsonp(CONFIG.API_URL);
-  if(!data || !data.ok) throw new Error(data && data.error ? data.error : 'Respons data tidak valid.');
-  dashboardData=data; populateYearFilter(data.records||[]); applyYearFilter();
-  document.getElementById('statusText').textContent='Terhubung ke spreadsheet';
-  document.getElementById('statusDot').classList.add('ok');
-  document.getElementById('updated').textContent='Pembaruan terakhir: '+new Date(data.updatedAt).toLocaleString('id-ID');
- }catch(e){
-  err.textContent=e.message;err.style.display='block';
-  document.getElementById('statusText').textContent='Koneksi bermasalah';
-  document.getElementById('statusDot').classList.remove('ok');
- }finally{btn.disabled=false;btn.textContent='↻ Perbarui Data';}
+  if(!CONFIG.API_URL||CONFIG.API_URL.includes('GANTI_DENGAN'))throw new Error('URL Apps Script belum diatur.');
+  const data=await jsonp({action:'summary'});if(!data||!data.ok)throw new Error(data?.error||'Respons ringkasan tidak valid.');
+  dashboardData=data;populateYearFilter();applySummaryFilter();
+  document.getElementById('statusText').textContent='Terhubung · '+(data.cacheHit?'Cache':'Data terbaru');document.getElementById('statusDot').classList.add('ok');
+  document.getElementById('updated').textContent='Data diperbarui: '+new Date(data.updatedAt).toLocaleString('id-ID')+' · '+fmt(data.totalProyek)+' proyek';
+  await loadTable();
+ }catch(e){showError(e)}finally{btn.disabled=false;btn.textContent='↻ Perbarui Data'}
 }
-function populateYearFilter(records){
- const el=document.getElementById('yearFilter');
- const selected=el.value;
- // Tahun yang tersedia dimulai 2021 dan berhenti pada tahun berjalan.
- el.innerHTML='<option value="">Semua tahun</option>'+REPORT_YEARS.map(y=>'<option value="'+y+'">'+y+'</option>').join('');
- if(selected && REPORT_YEARS.includes(Number(selected))) el.value=selected;
+function populateYearFilter(){const el=document.getElementById('yearFilter'),old=el.value;el.innerHTML='<option value="">Semua tahun</option>'+REPORT_YEARS.map(y=>`<option value="${y}">${y}</option>`).join('');if(old&&REPORT_YEARS.includes(Number(old)))el.value=old}
+function applySummaryFilter(){
+ if(!dashboardData)return;const year=document.getElementById('yearFilter').value;const byYear=dashboardData.byYear||{};
+ const summary=year?byYear[year]:dashboardData;
+ const totalProyek=summary?.totalProyek??0,totalKBLI=summary?.totalKBLI??0,totalInvestasi=summary?.totalInvestasi??0,totalTKI=summary?.totalTKI??0,totalPerusahaan=summary?.totalPerusahaan??0;
+ document.getElementById('totalProyek').textContent=fmt(totalProyek);document.getElementById('totalKBLI').textContent=fmt(totalKBLI);document.getElementById('totalInvestasi').textContent=rupiah(totalInvestasi);document.getElementById('totalTKI').textContent=fmt(totalTKI);document.getElementById('totalPerusahaan').textContent=fmt(totalPerusahaan);
+ const charts=year?(summary?.charts||{}):(dashboardData.charts||{});
+ makeChart('yearChart','bar',REPORT_YEARS.map(y=>({label:String(y),value:byYear[y]?.totalProyek||0})),'Jumlah proyek',false);
+ makeChart('yearInvestmentChart','bar',REPORT_YEARS.map(y=>({label:String(y),value:byYear[y]?.totalInvestasi||0})),'Investasi (Rp)',false,true);
+ makeChart('districtChart','bar',charts.kecamatan||[],'Jumlah proyek',true);makeChart('riskChart','doughnut',charts.risiko||[],'Jumlah proyek',false);makeChart('scaleChart','bar',charts.skala||[],'Jumlah proyek',true);makeChart('sectorChart','bar',charts.sektorProyek||[],'Jumlah proyek',true);makeChart('investmentChart','bar',charts.sektorInvestasi||[],'Investasi (Rp)',true,true);makeChart('kbliChart','bar',charts.kbliTeratas||[],'Jumlah proyek',true);makeChart('modalChart','doughnut',charts.statusModal||[],'Jumlah proyek',false);
+ populateFilters(dashboardData.filters||{});renderBusinessList(dashboardData.businessRows||[]);
 }
-function applyYearFilter(){
- if(!dashboardData)return;
- const year=document.getElementById('yearFilter').value;
- activeRecords=(dashboardData.records||[]).filter(r=>!year||String(r.tahunPengajuan)===year);
- const records=activeRecords;
- const totalInvestasi=records.reduce((s,r)=>s+(Number(r.investasi)||0),0);
- const totalTKI=records.reduce((s,r)=>s+(Number(r.tki)||0),0);
- const uniqueKBLI=new Set(records.map(r=>r.kbli).filter(Boolean));
- const companies=new Set(records.map(r=>String(r.nib||'').trim()).filter(Boolean));
- document.getElementById('totalProyek').textContent=fmt(records.length);
- document.getElementById('totalKBLI').textContent=fmt(uniqueKBLI.size);
- document.getElementById('totalInvestasi').textContent=rupiah(totalInvestasi);
- document.getElementById('totalTKI').textContent=fmt(totalTKI);
- document.getElementById('totalPerusahaan').textContent=fmt(companies.size);
- const countBy=(key,limit=20)=>{const m={};records.forEach(r=>{const k=r[key]||'Tidak diisi';m[k]=(m[k]||0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,limit).map(([label,value])=>({label,value}));};
- const sumBy=(key,amountKey,limit=10)=>{const m={};records.forEach(r=>{const k=r[key]||'Tidak diisi';m[k]=(m[k]||0)+(Number(r[amountKey])||0)});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,limit).map(([label,value])=>({label,value}));};
- const years={};records.forEach(r=>{if(r.tahunPengajuan)years[r.tahunPengajuan]=(years[r.tahunPengajuan]||0)+1;});
- makeChart('yearChart','bar',REPORT_YEARS.map(y=>({label:String(y),value:records.filter(r=>Number(r.tahunPengajuan)===y).length})),'Jumlah proyek',false);
- const investmentYears={};records.forEach(r=>{const y=Number(r.tahunPengajuan);if(y>=YEAR_START&&y<=CURRENT_YEAR)investmentYears[y]=(investmentYears[y]||0)+(Number(r.investasi)||0);});
- makeChart('yearInvestmentChart','bar',REPORT_YEARS.map(y=>({label:String(y),value:investmentYears[y]||0})),'Investasi (Rp)',false,true);
- makeChart('districtChart','bar',countBy('kecamatan'),'Jumlah proyek',true);
- makeChart('riskChart','doughnut',countBy('risiko'),'Jumlah proyek',false);
- makeChart('scaleChart','bar',countBy('skala'),'Jumlah proyek',true);
- makeChart('sectorChart','bar',countBy('sektor',10),'Jumlah proyek',true);
- makeChart('investmentChart','bar',sumBy('sektor','investasi',10),'Investasi (Rp)',true,true);
- makeChart('kbliChart','bar',countBy('judulKbli',10),'Jumlah proyek',true);
- makeChart('modalChart','doughnut',countBy('statusModal',10),'Jumlah proyek',false);
- populateFilters(records);renderTable();renderBusinessList();
-}
-function makeChart(id,type,items,label,horizontal=false,money=false){
- const canvas=document.getElementById(id);if(!canvas)return;
- if(chartInstances[id])chartInstances[id].destroy();
- items=items||[];
- if(window.ChartDataLabels && !Chart.registry.plugins.get('datalabels')) Chart.register(ChartDataLabels);
- chartInstances[id]=new Chart(canvas,{
-  type,
-  data:{labels:items.map(x=>x.label),datasets:[{label,data:items.map(x=>x.value),
-   backgroundColor:type==='doughnut'?items.map((_,i)=>palette[i%palette.length]):(horizontal?'#2463eb':'#17a2b8'),
-   borderRadius:type==='bar'?5:0,borderWidth:0,barPercentage:.72,categoryPercentage:.8}]},
-  options:{responsive:true,maintainAspectRatio:false,indexAxis:horizontal?'y':'x',
-   plugins:{legend:{display:type==='doughnut',position:'bottom'},datalabels:{display:true,anchor:type==='doughnut'?'center':(horizontal?'end':'end'),align:type==='doughnut'?'center':(horizontal?'right':'top'),color:type==='doughnut'?'#ffffff':'#23364d',font:{weight:'700',size:10},formatter:(v,ctx)=>type==='doughnut'?fmt(v):(money?rupiah(v):fmt(v)),clamp:true,clip:false},tooltip:{callbacks:{label:c=>' '+(money?rupiah(c.raw):fmt(c.raw))}}},
-   scales:type==='doughnut'?{}:(horizontal?{x:{beginAtZero:true,grid:{display:true},ticks:{callback:v=>money?rupiah(v):fmt(v)}},y:{grid:{display:false},ticks:{autoSkip:false}}}:{x:{grid:{display:true},ticks:{autoSkip:false}},y:{beginAtZero:true,grid:{display:false},ticks:{callback:v=>money?rupiah(v):fmt(v)}}})}
- });
-}
-function populateFilters(records){
- const districts=[...new Set(records.map(r=>r.kecamatan).filter(Boolean))].sort();
- const risks=[...new Set(records.map(r=>r.risiko).filter(Boolean))].sort();
- setOptions('districtFilter',districts);setOptions('riskFilter',risks);
-}
-function setOptions(id,items){
- const el=document.getElementById(id),first=el.options[0].outerHTML;
- el.innerHTML=first+items.map(x=>'<option value="'+escapeHtml(x)+'">'+escapeHtml(x)+'</option>').join('');
-}
-function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-function renderTable(){
- if(!dashboardData)return;
- const q=(document.getElementById('searchInput').value||'').toLowerCase().trim();
- const dist=document.getElementById('districtFilter').value,risk=document.getElementById('riskFilter').value;
- const filtered=activeRecords.filter(r=>
-  (!dist||r.kecamatan===dist)&&(!risk||r.risiko===risk)&&
-  [r.idProyek,r.nib,r.namaPerusahaan,r.namaProyek,r.kbli,r.judulKbli,r.kecamatan,r.risiko,r.skala].join(' ').toLowerCase().includes(q));
- const shown=filtered.slice(0,tableLimit);
- document.getElementById('dataRows').innerHTML=shown.length?shown.map(r=>'<tr>'+
-  '<td>'+escapeHtml(r.idProyek)+'</td><td>'+escapeHtml(r.nib)+'</td><td>'+escapeHtml(r.namaPerusahaan)+'</td><td>'+escapeHtml(r.namaProyek)+'</td>'+
-  '<td>'+escapeHtml(r.kbli)+'</td><td>'+escapeHtml(r.judulKbli)+'</td><td>'+escapeHtml(r.kecamatan)+'</td>'+
-  '<td>'+escapeHtml(r.risiko)+'</td><td>'+escapeHtml(r.skala)+'</td><td>'+escapeHtml(rupiah(r.investasi))+'</td></tr>').join(''):
-  '<tr><td colspan="10">Tidak ada data yang cocok.</td></tr>';
- document.getElementById('tableNote').textContent='Menampilkan '+fmt(shown.length)+' dari '+fmt(filtered.length)+' data hasil filter'+(filtered.length>tableLimit?' (maksimum '+fmt(tableLimit)+' baris pada tampilan ini)':'')+'.';
-}
-
-function classifyBusiness(r){
- const text=((r.judulKbli||'')+' '+(r.namaProyek||'')+' '+(r.sektor||'')).toLowerCase();
- const groups=[
-  ['Akomodasi','hotel','akomodasi','penginapan','losmen','guest house','pondok wisata','vila','villa'],
-  ['Rumah makan & penyedia makanan','restoran','rumah makan','penyedia makanan','jasa boga','katering','catering','warung makan','kedai makanan'],
-  ['Klinik & praktik kesehatan','klinik','praktik dokter','praktek dokter','praktik kesehatan','laboratorium klinik'],
-  ['Rumah sakit','rumah sakit','rs umum','rs khusus'],
-  ['Apotek & farmasi','apotek','farmasi','toko obat'],
-  ['Perdagangan','perdagangan','eceran','perdagangan besar','toko'],
-  ['Industri / produksi','industri','industri pengolahan','produksi','pabrik'],
-  ['Pendidikan','pendidikan','sekolah','kursus','bimbingan belajar'],
-  ['Konstruksi','konstruksi','konstruksi gedung','pekerjaan konstruksi'],
-  ['Transportasi','angkutan','transportasi','pergudangan','logistik'],
-  ['Kecantikan & kebugaran','salon','pangkas rambut','kecantikan','spa','kebugaran'],
-  ['Jasa lainnya','jasa','reparasi','perawatan']
- ];
- for(const g of groups) if(g.slice(1).some(k=>text.includes(k))) return g[0];
- return r.judulKbli?'Usaha lainnya':'Belum teridentifikasi';
-}
-function renderBusinessList(){
- if(!dashboardData)return;
- const q=(document.getElementById('businessSearch').value||'').toLowerCase().trim();
- const cat=document.getElementById('businessCategory').value;
- const map=new Map();
- activeRecords.forEach(r=>{
-  const category=classifyBusiness(r), code=r.kbli||'—', title=r.judulKbli||r.namaProyek||'Uraian tidak tersedia';
-  const key=[category,code,title].join('|');
-  if(!map.has(key))map.set(key,{category,code,title,count:0,investment:0,districts:new Set()});
-  const o=map.get(key);o.count++;o.investment+=Number(r.investasi)||0;if(r.kecamatan)o.districts.add(r.kecamatan);
- });
- const categories=[...new Set([...map.values()].map(x=>x.category))].sort();
- const sel=document.getElementById('businessCategory');const prior=sel.value;sel.innerHTML='<option value="">Semua kategori usaha</option>'+categories.map(c=>'<option value="'+escapeHtml(c)+'">'+escapeHtml(c)+'</option>').join('');if(categories.includes(prior))sel.value=prior;
- const rows=[...map.values()].filter(x=>(!cat||x.category===cat)&&[x.category,x.code,x.title,[...x.districts].join(' ')].join(' ').toLowerCase().includes(q)).sort((a,b)=>b.count-a.count);
- const body=document.getElementById('businessRows');
- body.innerHTML=rows.slice(0,500).map(x=>'<tr><td>'+escapeHtml(x.category)+'</td><td>'+escapeHtml(x.code)+'</td><td>'+escapeHtml(x.title)+'</td><td>'+fmt(x.count)+'</td><td>'+escapeHtml(rupiah(x.investment))+'</td><td>'+escapeHtml([...x.districts].join(', ')||'—')+'</td></tr>').join('')||'<tr><td colspan="6">Tidak ada jenis usaha yang cocok.</td></tr>';
- document.getElementById('businessNote').textContent='Menampilkan '+fmt(Math.min(rows.length,500))+' dari '+fmt(rows.length)+' kombinasi kategori/KBLI/jenis usaha. Kategori disimpulkan dari kata kunci judul KBLI, nama proyek, dan sektor; periksa judul KBLI untuk klasifikasi resmi.';
-}
-
+function applyYearFilter(){currentPage=1;applySummaryFilter();loadTable()}
+function makeChart(id,type,items,label,horizontal=false,money=false){const canvas=document.getElementById(id);if(!canvas)return;if(chartInstances[id])chartInstances[id].destroy();items=items||[];if(window.ChartDataLabels&&!Chart.registry.plugins.get('datalabels'))Chart.register(ChartDataLabels);chartInstances[id]=new Chart(canvas,{type,data:{labels:items.map(x=>x.label),datasets:[{label,data:items.map(x=>x.value),backgroundColor:type==='doughnut'?items.map((_,i)=>palette[i%palette.length]):(horizontal?'#2463eb':'#17a2b8'),borderRadius:type==='bar'?5:0,borderWidth:0,barPercentage:.72,categoryPercentage:.8}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:horizontal?'y':'x',plugins:{legend:{display:type==='doughnut',position:'bottom'},datalabels:{display:true,anchor:'end',align:type==='doughnut'?'center':(horizontal?'right':'top'),color:type==='doughnut'?'#fff':'#23364d',font:{weight:'700',size:10},formatter:v=>type==='doughnut'?fmt(v):(money?rupiah(v):fmt(v)),clamp:true,clip:false},tooltip:{callbacks:{label:c=>' '+(money?rupiah(c.raw):fmt(c.raw))}}},scales:type==='doughnut'?{}:(horizontal?{x:{beginAtZero:true,ticks:{callback:v=>money?rupiah(v):fmt(v)}},y:{ticks:{autoSkip:false}}}:{x:{ticks:{autoSkip:false}},y:{beginAtZero:true,ticks:{callback:v=>money?rupiah(v):fmt(v)}}})}})}
+function populateFilters(filters){setOptions('districtFilter',filters.kecamatan||[]);setOptions('riskFilter',filters.risiko||[])}
+function setOptions(id,items){const el=document.getElementById(id),old=el.value,first=el.options[0].outerHTML;el.innerHTML=first+(items||[]).map(x=>'<option value="'+escapeHtml(x)+'">'+escapeHtml(x)+'</option>').join('');if((items||[]).includes(old))el.value=old}
+function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function renderTable(){clearTimeout(tableTimer);tableTimer=setTimeout(()=>{currentPage=1;loadTable()},350)}
+async function loadTable(){if(!dashboardData)return;const body=document.getElementById('dataRows');body.innerHTML='<tr><td colspan="10">Memuat data…</td></tr>';try{const data=await jsonp({action:'records',page:String(currentPage),pageSize:String(PAGE_SIZE),year:document.getElementById('yearFilter').value,search:document.getElementById('searchInput').value||'',kecamatan:document.getElementById('districtFilter').value,risk:document.getElementById('riskFilter').value});if(!data.ok)throw new Error(data.error||'Gagal memuat tabel');totalRows=data.total||0;const rows=data.records||[];body.innerHTML=rows.length?rows.map(r=>'<tr><td>'+escapeHtml(r.idProyek)+'</td><td>'+escapeHtml(r.nib)+'</td><td>'+escapeHtml(r.namaPerusahaan)+'</td><td>'+escapeHtml(r.namaProyek)+'</td><td>'+escapeHtml(r.kbli)+'</td><td>'+escapeHtml(r.judulKbli)+'</td><td>'+escapeHtml(r.kecamatan)+'</td><td>'+escapeHtml(r.risiko)+'</td><td>'+escapeHtml(r.skala)+'</td><td>'+escapeHtml(rupiah(r.investasi))+'</td></tr>').join(''):'<tr><td colspan="10">Tidak ada data yang cocok.</td></tr>';document.getElementById('tableNote').innerHTML='Menampilkan '+fmt(rows.length)+' dari '+fmt(totalRows)+' data. Halaman '+currentPage+'. '+(currentPage>1?'<button onclick="changePage(-1)">Sebelumnya</button> ':'')+(currentPage*PAGE_SIZE<totalRows?'<button onclick="changePage(1)">Berikutnya</button>':'');}catch(e){body.innerHTML='<tr><td colspan="10">'+escapeHtml(e.message)+'</td></tr>'}}
+function changePage(delta){currentPage=Math.max(1,currentPage+delta);loadTable()}
+function renderBusinessList(rows){const q=(document.getElementById('businessSearch').value||'').toLowerCase().trim(),cat=document.getElementById('businessCategory').value;const filtered=(rows||[]).filter(x=>(!cat||x.category===cat)&&[x.category,x.code,x.title,x.districts].join(' ').toLowerCase().includes(q));const cats=[...new Set((rows||[]).map(x=>x.category))].sort();setOptions('businessCategory',cats);const body=document.getElementById('businessRows');body.innerHTML=filtered.slice(0,500).map(x=>'<tr><td>'+escapeHtml(x.category)+'</td><td>'+escapeHtml(x.code)+'</td><td>'+escapeHtml(x.title)+'</td><td>'+fmt(x.count)+'</td><td>'+escapeHtml(rupiah(x.investment))+'</td><td>'+escapeHtml(x.districts||'—')+'</td></tr>').join('')||'<tr><td colspan="6">Tidak ada jenis usaha yang cocok.</td></tr>';document.getElementById('businessNote').textContent='Menampilkan '+fmt(Math.min(filtered.length,500))+' dari '+fmt(filtered.length)+' kombinasi kategori/KBLI/jenis usaha.'}
+document.getElementById('businessSearch').addEventListener('input',()=>renderBusinessList(dashboardData?.businessRows||[]));document.getElementById('businessCategory').addEventListener('change',()=>renderBusinessList(dashboardData?.businessRows||[]));
 loadData();
 </script>
 </body></html>
